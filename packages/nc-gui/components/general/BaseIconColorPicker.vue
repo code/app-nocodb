@@ -1,11 +1,10 @@
 <script lang="ts" setup>
 import tinycolor from 'tinycolor2'
-
-import { NcProjectType, baseIconColors } from '#imports'
+import { NcProjectType } from '#imports'
 
 const props = withDefaults(
   defineProps<{
-    type?: NcProjectType | string
+    type?: typeof NcProjectType | string
     modelValue?: string
     size?: 'xsmall' | 'small' | 'medium' | 'large' | 'xlarge'
     readonly?: boolean

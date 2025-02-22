@@ -2,23 +2,13 @@ import type { BaseType } from 'nocodb-sdk'
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { message } from 'ant-design-vue'
 import { isString } from '@vue/shared'
-import type { ThemeConfig } from '#imports'
-import {
-  computed,
-  navigateTo,
-  navigateToBlankTargetOpenOption,
-  ref,
-  useBases,
-  useCommandPalette,
-  useNuxtApp,
-  useRouter,
-  useTheme,
-} from '#imports'
 
 export const useWorkspace = defineStore('workspaceStore', () => {
   const basesStore = useBases()
 
   const collaborators = ref<any[] | null>()
+
+  const allCollaborators = ref<any[] | null>()
 
   const router = useRouter()
 
@@ -40,6 +30,10 @@ export const useWorkspace = defineStore('workspaceStore', () => {
   const workspacesList = computed<any[]>(() => Array.from(workspaces.value.values()).sort((a, b) => a.updated_at - b.updated_at))
 
   const isWorkspaceSettingsPageOpened = computed(() => route.value.name === 'index-typeOrId-settings')
+
+  const isIntegrationsPageOpened = computed(() => route.value.name === 'index-typeOrId-integrations')
+
+  const isFeedPageOpened = computed(() => route.value.name === 'index-typeOrId-feed')
 
   const isWorkspaceLoading = ref(true)
   const isCollaboratorsLoading = ref(true)
@@ -223,6 +217,30 @@ export const useWorkspace = defineStore('workspaceStore', () => {
     }
   }
 
+  // Todo: write logic to navigate to integrations
+  const navigateToIntegrations = async (_?: string, cmdOrCtrl?: boolean, query: Record<string, string> = {}) => {
+    if (cmdOrCtrl) {
+      await navigateTo(
+        { path: '/nc/integrations', query },
+        {
+          open: navigateToBlankTargetOpenOption,
+        },
+      )
+    } else {
+      await navigateTo({ path: '/nc/integrations', query })
+    }
+  }
+
+  const navigateToFeed = async (_?: string, cmdOrCtrl?: boolean) => {
+    if (cmdOrCtrl) {
+      await navigateTo('/nc/feed', {
+        open: navigateToBlankTargetOpenOption,
+      })
+    } else {
+      await navigateTo('/nc/feed')
+    }
+  }
+
   function setLoadingState(isLoading = false) {
     isWorkspaceLoading.value = isLoading
   }
@@ -244,6 +262,7 @@ export const useWorkspace = defineStore('workspaceStore', () => {
     removeCollaborator,
     updateCollaborator,
     collaborators,
+    allCollaborators,
     isInvitingCollaborators,
     isCollaboratorsLoading,
     addToFavourite,
@@ -268,6 +287,10 @@ export const useWorkspace = defineStore('workspaceStore', () => {
     getPlanLimit,
     workspaceRole,
     moveToOrg,
+    navigateToFeed,
+    isIntegrationsPageOpened,
+    navigateToIntegrations,
+    isFeedPageOpened,
   }
 })
 

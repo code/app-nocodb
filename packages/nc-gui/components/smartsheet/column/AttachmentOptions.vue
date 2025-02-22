@@ -2,7 +2,6 @@
 import type { TreeProps } from 'ant-design-vue'
 import type { CheckboxChangeEvent } from 'ant-design-vue/es/checkbox/interface'
 import { fileMimeTypeList, fileMimeTypes } from './utils'
-import { useGlobal, useVModel } from '#imports'
 
 const props = defineProps<{
   value: any
@@ -34,7 +33,7 @@ vModel.value.meta = {
     // allow all mime types by default
     supportedAttachmentMimeTypes: ['*'],
   }),
-  ...vModel.value.meta,
+  ...(vModel.value.meta || {}),
 }
 
 const expandedKeys = ref<(string | number)[]>([])

@@ -3,7 +3,6 @@ import type { BaseType, TableType } from 'nocodb-sdk'
 import { storeToRefs } from 'pinia'
 import Sortable from 'sortablejs'
 import TableNode from './TableNode.vue'
-import { toRef, useNuxtApp } from '#imports'
 
 const props = withDefaults(
   defineProps<{
@@ -112,6 +111,7 @@ const initSortable = (el: Element) => {
       )
     },
     revertOnSpill: true,
+    filter: isTouchEvent,
   })
 }
 

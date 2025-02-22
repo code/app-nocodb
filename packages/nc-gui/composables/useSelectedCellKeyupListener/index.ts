@@ -1,14 +1,30 @@
 import { isClient } from '@vueuse/core'
 import type { ComputedRef, Ref } from 'vue'
-import { cmdKActive } from '#imports'
 
-function useSelectedCellKeyupListener(
+function useSelectedCellKeydownListener(
   selected: Ref<boolean | undefined> | ComputedRef<boolean | undefined>,
   handler: (e: KeyboardEvent) => void,
-  { immediate = false }: { immediate?: boolean } = {},
+  { immediate = false, isGridCell = true }: { immediate?: boolean; isGridCell?: boolean } = {},
 ) {
   const finalHandler = (e: KeyboardEvent) => {
     if (cmdKActive()) return
+
+    /**
+     * If `useSelectedCellKeydownListener` used for grid cell and active element is not in grid then prevent
+     */
+    if (isGridCell) {
+      if (isExpandedFormOpenExist() || isExpandedCellInputExist() || isFieldEditOrAddDropdownOpen()) {
+        return
+      }
+
+      if (
+        isActiveInputElementExist() &&
+        !(document.activeElement as HTMLElement).closest('table, .nc-group-table, .nc-grid-wrapper')
+      ) {
+        return
+      }
+    }
+
     handler(e)
   }
 
@@ -34,4 +50,4 @@ function useSelectedCellKeyupListener(
   }
 }
 
-export { useSelectedCellKeyupListener, useSelectedCellKeyupListener as useActiveKeyupListener }
+export { useSelectedCellKeydownListener, useSelectedCellKeydownListener as useActiveKeydownListener }

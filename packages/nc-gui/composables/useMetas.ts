@@ -1,7 +1,6 @@
 import { message } from 'ant-design-vue'
 import type { WatchStopHandle } from 'vue'
 import type { TableType } from 'nocodb-sdk'
-import { extractSdkResponseErrorMsg, storeToRefs, useBase, useNuxtApp, useState, watch } from '#imports'
 
 export const useMetas = createSharedComposable(() => {
   const { $api } = useNuxtApp()
@@ -80,13 +79,8 @@ export const useMetas = createSharedComposable(() => {
       if (!force && metas.value[tableIdOrTitle]) {
         return metas.value[tableIdOrTitle]
       }
-
-      const modelId = (tables.find((t) => t.id === tableIdOrTitle) || tables.find((t) => t.title === tableIdOrTitle))?.id
-
-      if (!modelId) {
-        console.warn(`Table '${tableIdOrTitle}' is not found in the table list`)
-        return null
-      }
+      const modelId =
+        (tables.find((t) => t.id === tableIdOrTitle) || tables.find((t) => t.title === tableIdOrTitle))?.id || tableIdOrTitle
 
       const model = await $api.dbTable.read(modelId)
       metas.value = {
