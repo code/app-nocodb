@@ -1,22 +1,4 @@
 <script lang="ts" setup>
-import {
-  ActiveViewInj,
-  FieldsInj,
-  IsPublicInj,
-  MetaInj,
-  ReadonlyInj,
-  ReloadViewDataHookInj,
-  createEventHook,
-  extractSdkResponseErrorMsg,
-  message,
-  provide,
-  ref,
-  useBase,
-  useGlobal,
-  useProvideSmartsheetStore,
-  useSharedView,
-} from '#imports'
-
 const { sharedView, meta, nestedFilters } = useSharedView()
 
 const { signedIn } = useGlobal()
@@ -36,9 +18,10 @@ provide(ReloadViewDataHookInj, reloadEventHook)
 provide(ReadonlyInj, ref(true))
 provide(MetaInj, meta)
 provide(ActiveViewInj, sharedView)
-provide(FieldsInj, columns)
 provide(IsPublicInj, ref(true))
 provide(IsLockedInj, isLocked)
+
+provide(ReloadAggregateHookInj, createEventHook())
 
 useProvideViewColumns(sharedView, meta, () => reloadEventHook?.trigger(), true)
 useProvideViewGroupBy(sharedView, meta, xWhere, true)
@@ -64,7 +47,7 @@ watch(
 </script>
 
 <template>
-  <div class="nc-container flex flex-col h-full mt-1.5 px-12">
+  <div class="nc-container flex flex-col h-full">
     <LazySmartsheetToolbar />
     <LazySmartsheetGrid />
   </div>

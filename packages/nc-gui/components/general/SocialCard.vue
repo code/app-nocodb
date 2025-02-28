@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { enumColor as colors, iconMap, useDialog, useGlobal, useNuxtApp } from '#imports'
+import { enumColor as colors } from '#imports'
 
 const { $e } = useNuxtApp()
 
@@ -97,7 +97,7 @@ function openKeyboardShortcutDialog() {
           no-prefetch
           no-rel
           class="!no-underline !text-current"
-          to="https://calendly.com/nocodb-meeting"
+          to="https://cal.com/nocodb"
           target="_blank"
         >
           <div class="flex items-center text-sm">

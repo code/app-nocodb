@@ -1,6 +1,4 @@
 <script lang="ts" setup>
-import { isMac } from '#imports'
-
 const { modelValue } = defineProps<{
   modelValue: boolean
 }>()
@@ -11,13 +9,6 @@ const dialogShow = computed({
   get: () => modelValue,
   set: (v) => emit('update:modelValue', v),
 })
-
-const renderCmdOrCtrlKey = () => {
-  return isMac() ? '⌘' : 'CTRL'
-}
-const renderAltOrOptlKey = () => {
-  return isMac() ? '⌥' : 'ALT'
-}
 
 const shortcutList = [
   {

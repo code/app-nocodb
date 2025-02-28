@@ -2,25 +2,16 @@
 import type { ColumnType, LinkToAnotherRecordType } from 'nocodb-sdk'
 import { RelationTypes, isLinksOrLTAR, isSystemColumn } from 'nocodb-sdk'
 import InboxIcon from '~icons/nc-icons/inbox'
-import {
-  ColumnInj,
-  IsPublicInj,
-  SaveRowInj,
-  computed,
-  inject,
-  ref,
-  useLTARStoreOrThrow,
-  useSmartsheetRowStoreOrThrow,
-  useVModel,
-} from '#imports'
 
 const props = defineProps<{ modelValue: boolean; column: any; hideBackBtn?: boolean }>()
 
-const emit = defineEmits(['update:modelValue', 'addNewRecord', 'attachLinkedRecord'])
+const emit = defineEmits(['update:modelValue', 'addNewRecord', 'attachLinkedRecord', 'escape'])
 
 const vModel = useVModel(props, 'modelValue', emit)
 
 const { isMobileMode } = useGlobal()
+
+const { isUIAllowed } = useRoles()
 
 const injectedColumn = inject(ColumnInj)
 
@@ -31,6 +22,8 @@ const filterQueryRef = ref<HTMLInputElement>()
 const { t } = useI18n()
 
 const { $e } = useNuxtApp()
+
+const { isDataReadOnly } = useRoles()
 
 const {
   childrenExcludedList,
@@ -51,6 +44,8 @@ const {
   unlink,
   row,
   resetChildrenExcludedOffsetCount,
+  loadRelatedTableMeta,
+  targetViewColumnsById,
 } = useLTARStoreOrThrow()
 
 const { addLTARRef, isNew, removeLTARRef, state: rowState } = useSmartsheetRowStoreOrThrow()
@@ -58,6 +53,8 @@ const { addLTARRef, isNew, removeLTARRef, state: rowState } = useSmartsheetRowSt
 const isPublic = inject(IsPublicInj, ref(false))
 
 const isExpandedFormCloseAfterSave = ref(false)
+
+const isNewRecord = ref(false)
 
 isChildrenExcludedLoading.value = true
 
@@ -69,10 +66,26 @@ const reloadTrigger = inject(ReloadRowDataHookInj, createEventHook())
 
 const reloadViewDataTrigger = inject(ReloadViewDataHookInj, createEventHook())
 
+const relation = computed(() => {
+  return injectedColumn!.value?.colOptions?.type
+})
+
 const linkRow = async (row: Record<string, any>, id: number) => {
   if (isNew.value) {
-    addLTARRef(row, injectedColumn?.value as ColumnType)
-    isChildrenExcludedListLinked.value[id] = true
+    await addLTARRef(row, injectedColumn?.value as ColumnType)
+    if (relation.value === 'oo' || relation.value === 'bt') {
+      isChildrenExcludedListLinked.value.forEach((isLinked, idx) => {
+        if (isLinked) {
+          isChildrenExcludedListLinked.value[idx] = false
+        }
+        if (id === idx) {
+          isChildrenExcludedListLinked.value[idx] = true
+        }
+      })
+    } else {
+      isChildrenExcludedListLinked.value[id] = true
+    }
+
     saveRow!()
 
     $e('a:links:link')
@@ -142,7 +155,7 @@ const newRowState = computed(() => {
   const relatedTableColOpt = colInRelatedTable?.colOptions as LinkToAnotherRecordType
   if (!relatedTableColOpt) return {}
 
-  if (relatedTableColOpt.type === RelationTypes.BELONGS_TO) {
+  if (relatedTableColOpt.type === RelationTypes.BELONGS_TO || relatedTableColOpt.type === RelationTypes.ONE_TO_ONE) {
     return {
       [colInRelatedTable.title as string]: row?.value?.row,
     }
@@ -161,25 +174,30 @@ const fields = computedInject(FieldsInj, (_fields) => {
   return (relatedTableMeta.value.columns ?? [])
     .filter((col) => !isSystemColumn(col) && !isPrimary(col) && !isLinksOrLTAR(col) && !isAttachment(col))
     .sort((a, b) => {
-      if (a.meta?.defaultViewColOrder !== undefined && b.meta?.defaultViewColOrder !== undefined) {
-        return a.meta.defaultViewColOrder - b.meta.defaultViewColOrder
+      if (isPublic.value) {
+        return (a.meta?.defaultViewColOrder ?? Infinity) - (b.meta?.defaultViewColOrder ?? Infinity)
       }
-      return 0
+
+      return (targetViewColumnsById.value[a.id!]?.order ?? Infinity) - (targetViewColumnsById.value[b.id!]?.order ?? Infinity)
     })
     .slice(0, isMobileMode.value ? 1 : 3)
 })
 
-const relation = computed(() => {
-  return injectedColumn!.value?.colOptions?.type
-})
-
 const totalItemsToShow = computed(() => {
-  if (relation.value === 'bt') {
-    return row.value.row[relatedTableMeta.value?.title] ? 1 : 0
+  if (isForm.value || isNew.value) {
+    if (relation.value === 'bt' || relation.value === 'oo') {
+      return rowState.value?.[injectedColumn!.value?.title] ? 1 : 0
+    }
+
+    return rowState.value?.[injectedColumn!.value?.title]?.length ?? 0
   }
 
-  if (isForm.value || isNew.value) {
-    return rowState.value?.[injectedColumn!.value?.title]?.length ?? 0
+  if (relation.value === 'bt') {
+    return row.value?.row[relatedTableMeta.value?.title] ? 1 : 0
+  }
+
+  if (relation.value === 'oo') {
+    return row.value?.row[injectedColumn!.value?.title] ? 1 : 0
   }
 
   return childrenListCount.value ?? 0
@@ -214,6 +232,7 @@ const addNewRecord = () => {
   expandedFormRow.value = {}
   expandedFormDlg.value = true
   isExpandedFormCloseAfterSave.value = true
+  isNewRecord.value = true
 }
 
 const onCreatedRecord = (record: any) => {
@@ -225,6 +244,12 @@ const onCreatedRecord = (record: any) => {
   reloadViewDataTrigger?.trigger({
     shouldShowLoading: false,
   })
+
+  if (!isNewRecord.value) {
+    vModel.value = false
+
+    return
+  }
 
   const msgVNode = h(
     'div',
@@ -255,6 +280,7 @@ const onCreatedRecord = (record: any) => {
   message.success(msgVNode)
 
   vModel.value = false
+  isNewRecord.value = false
 }
 
 const linkedShortcuts = (e: KeyboardEvent) => {
@@ -285,7 +311,7 @@ watch(childrenExcludedListPagination, () => {
 
 onMounted(() => {
   window.addEventListener('keydown', linkedShortcuts)
-
+  loadRelatedTableMeta()
   setTimeout(() => {
     filterQueryRef.value?.focus()
   }, 100)
@@ -301,12 +327,29 @@ const onFilterChange = () => {
   childrenExcludedListPagination.page = 1
   resetChildrenExcludedOffsetCount()
 }
+
+const isSearchInputFocused = ref(false)
+
+const handleKeyDown = (e: KeyboardEvent) => {
+  if (e.key === 'Escape') {
+    if (!childrenExcludedListPagination.query) emit('escape')
+    filterQueryRef.value?.blur()
+  } else if (e.key === 'Enter') {
+    if (
+      childrenExcludedListPagination.query &&
+      ncIsArray(childrenExcludedList.value?.list) &&
+      childrenExcludedList.value?.list.length
+    ) {
+      onClick(childrenExcludedList.value?.list[0], '0')
+    }
+  }
+}
 </script>
 
 <template>
   <div class="nc-modal-link-record h-full w-full overflow-hidden" :class="{ active: vModel }" @keydown.enter.stop>
     <div class="flex flex-col h-full">
-      <div class="nc-dropdown-link-record-header bg-gray-100 py-2 rounded-t-md flex justify-between pl-3 pr-2 gap-2">
+      <div class="nc-dropdown-link-record-header bg-gray-100 py-2 rounded-t-xl flex justify-between pl-3 pr-2 gap-2">
         <div class="flex-1 gap-2 flex items-center">
           <button
             v-if="!hideBackBtn"
@@ -317,23 +360,22 @@ const onFilterChange = () => {
           </button>
 
           <div class="flex-1 nc-dropdown-link-record-search-wrapper flex items-center py-0.5 rounded-md">
-            <MdiMagnify class="nc-search-icon w-5 h-5" />
             <a-input
               ref="filterQueryRef"
               v-model:value="childrenExcludedListPagination.query"
               :bordered="false"
               placeholder="Search records to link..."
-              class="w-full nc-excluded-search min-h-4"
+              class="w-full nc-excluded-search min-h-4 !pl-0"
               size="small"
+              autocomplete="off"
+              @focus="isSearchInputFocused = true"
+              @blur="isSearchInputFocused = false"
               @change="onFilterChange"
-              @keydown.capture.stop="
-                (e) => {
-                  if (e.key === 'Escape') {
-                    filterQueryRef?.blur()
-                  }
-                }
-              "
+              @keydown.capture.stop="handleKeyDown"
             >
+              <template #prefix>
+                <GeneralIcon icon="search" class="nc-search-icon mr-2 h-4 w-4 text-gray-500" />
+              </template>
             </a-input>
           </div>
         </div>
@@ -352,26 +394,21 @@ const onFilterChange = () => {
               <div
                 v-for="(_x, i) in Array.from({ length: 10 })"
                 :key="i"
-                class="flex flex-row gap-2 mb-2 transition-all relative !border-gray-200 hover:bg-gray-50"
+                class="flex flex-row gap-3 px-3 py-2 transition-all relative border-b-1 border-gray-200 hover:c"
               >
                 <div class="flex items-center">
-                  <a-skeleton-image class="h-14 w-14 !rounded-xl children:!h-full" />
+                  <a-skeleton-image class="!h-11 !w-11 !rounded-md overflow-hidden children:(!h-full !w-full)" />
                 </div>
                 <div class="flex flex-col gap-2 flex-grow justify-center">
-                  <a-skeleton-input active class="h-3 !w-48 !rounded-xl" size="small" />
+                  <a-skeleton-input active class="h-4 !w-48 !rounded-md overflow-hidden" size="small" />
                   <div class="flex flex-row gap-6 w-10/12">
-                    <div class="flex flex-col gap-0.5">
-                      <a-skeleton-input active class="!h-2 !w-12" size="small" />
-                      <a-skeleton-input active class="!h-2 !w-24" size="small" />
-                    </div>
-                    <div class="flex flex-col gap-0.5">
-                      <a-skeleton-input active class="!h-2 !w-12" size="small" />
-                      <a-skeleton-input active class="!h-2 !w-24" size="small" />
-                    </div>
-                    <div class="flex flex-col gap-0.5">
-                      <a-skeleton-input active class="!h-2 !w-12" size="small" />
-                      <a-skeleton-input active class="!h-2 !w-24" size="small" />
-                    </div>
+                    <a-skeleton-input
+                      v-for="idx of [1, 2, 3]"
+                      :key="idx"
+                      active
+                      class="!h-3 !w-24 !rounded-md overflow-hidden"
+                      size="small"
+                    />
                   </div>
                 </div>
               </div>
@@ -385,6 +422,7 @@ const onFilterChange = () => {
                 :fields="fields"
                 :is-linked="isChildrenExcludedListLinked[Number.parseInt(id)]"
                 :is-loading="isChildrenExcludedListLoading[Number.parseInt(id)]"
+                :is-selected="!!(isSearchInputFocused && childrenExcludedListPagination.query && Number.parseInt(id) === 0)"
                 :related-table-display-value-prop="relatedTableDisplayValueProp"
                 :row="refRow"
                 data-testid="nc-excluded-list-item"
@@ -403,19 +441,20 @@ const onFilterChange = () => {
         </template>
         <div v-else class="h-full my-auto py-2 flex flex-col gap-3 items-center justify-center text-gray-500">
           <InboxIcon class="w-16 h-16 mx-auto" />
-          <p>
-            {{ $t('msg.thereAreNoRecordsInTable') }}
-            {{ relatedTableMeta?.title }}
+
+          <p v-if="childrenExcludedListPagination.query">{{ $t('msg.noRecordsMatchYourSearchQuery') }}</p>
+          <p v-else>
+            {{ $t('msg.noRecordsAvailForLinking') }}
           </p>
         </div>
       </div>
-      <div class="bg-gray-100 px-3 py-2 rounded-b-md flex items-center justify-between min-h-12">
+      <div class="nc-dropdown-link-record-footer bg-gray-100 p-2 rounded-b-xl flex items-center justify-between min-h-11">
         <div class="flex">
           <NcButton
-            v-if="!isPublic"
+            v-if="!isPublic && !isDataReadOnly && isUIAllowed('dataEdit')"
             v-e="['c:row-expand:open']"
             size="small"
-            class="!hover:(bg-white text-brand-500)"
+            class="!hover:(bg-white text-brand-500) !h-7 !text-small"
             type="secondary"
             @click="addNewRecord"
           >
@@ -451,6 +490,7 @@ const onFilterChange = () => {
       <LazySmartsheetExpandedForm
         v-if="expandedFormDlg"
         v-model="expandedFormDlg"
+        :load-row="!isPublic"
         :close-after-save="isExpandedFormCloseAfterSave"
         :meta="relatedTableMeta"
         :new-record-header="
@@ -463,17 +503,18 @@ const onFilterChange = () => {
         :row="{
           row: expandedFormRow,
           oldRow: {},
-          rowMeta:
-            Object.keys(expandedFormRow).length > 0
-              ? {}
-              : {
-                  new: true,
-                },
+          rowMeta: !isNewRecord
+            ? {}
+            : {
+                new: true,
+              },
         }"
         :row-id="extractPkFromRow(expandedFormRow, relatedTableMeta.columns as ColumnType[])"
         :state="newRowState"
         use-meta-fields
+        maintain-default-view-order
         :skip-reload="true"
+        :new-record-submit-btn-text="!isNewRecord ? undefined : 'Create & Link'"
         @created-record="onCreatedRecord"
       />
     </Suspense>
@@ -481,8 +522,8 @@ const onFilterChange = () => {
 </template>
 
 <style lang="scss" scoped>
-:deep(.ant-skeleton-element .ant-skeleton-image) {
-  @apply !h-full;
+:deep(.ant-skeleton-element .ant-skeleton-image-svg) {
+  @apply !w-7;
 }
 </style>
 
@@ -495,6 +536,12 @@ const onFilterChange = () => {
   &:focus-within {
     .nc-search-icon {
       @apply text-gray-600;
+    }
+  }
+
+  input {
+    &::placeholder {
+      @apply text-gray-500;
     }
   }
 }

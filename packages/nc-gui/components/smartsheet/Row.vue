@@ -1,22 +1,11 @@
 <script lang="ts" setup>
-import type { Row } from '#imports'
-import {
-  ReloadRowDataHookInj,
-  ReloadViewDataHookInj,
-  createEventHook,
-  inject,
-  provide,
-  toRef,
-  useProvideSmartsheetRowStore,
-} from '#imports'
-
 const props = defineProps<{
   row: Row
 }>()
 
 const currentRow = toRef(props, 'row')
 
-const { isNew, state } = useProvideSmartsheetRowStore(currentRow)
+const { isNew, state, loadRow, pk } = useProvideSmartsheetRowStore(currentRow)
 
 const reloadViewDataTrigger = inject(ReloadViewDataHookInj)!
 
@@ -28,6 +17,17 @@ reloadHook.on((params) => {
   reloadViewDataTrigger?.trigger({
     shouldShowLoading: (params?.shouldShowLoading as boolean) ?? false,
   })
+})
+
+const { eventBus: scriptEventBus } = useScriptExecutor()
+
+scriptEventBus.on(async (event, payload) => {
+  if (event === SmartsheetScriptActions.RELOAD_ROW) {
+    // eslint-disable-next-line eqeqeq
+    if (payload.rowId == pk.value) {
+      await loadRow()
+    }
+  }
 })
 
 provide(ReloadRowDataHookInj, reloadHook)

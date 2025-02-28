@@ -1,18 +1,6 @@
 <script setup lang="ts">
 import { validatePassword } from 'nocodb-sdk'
 import type { RuleObject } from 'ant-design-vue/es/form'
-import {
-  definePageMeta,
-  navigateTo,
-  reactive,
-  ref,
-  useApi,
-  useGlobal,
-  useI18n,
-  useNuxtApp,
-  useRoute,
-  validateEmail,
-} from '#imports'
 
 definePageMeta({
   requiresAuth: false,
@@ -49,7 +37,7 @@ const formRules = {
     {
       validator: (_: unknown, v: string) => {
         return new Promise((resolve, reject) => {
-          if (!v?.length || validateEmail(v)) return resolve()
+          if (!v?.length || validateEmail(v.trim())) return resolve()
 
           reject(new Error(t('msg.error.signUpRules.emailInvalid')))
         })
@@ -163,6 +151,8 @@ onMounted(async () => {
               <a-form-item :label="$t('labels.email')" name="email" :rules="formRules.email">
                 <a-input
                   v-model:value="form.email"
+                  type="email"
+                  autocomplete="email"
                   size="large"
                   :placeholder="$t('msg.info.signUp.workEmail')"
                   @focus="resetError"
@@ -172,6 +162,7 @@ onMounted(async () => {
               <a-form-item :label="$t('labels.password')" name="password" :rules="formRules.password">
                 <a-input-password
                   v-model:value="form.password"
+                  autocomplete="new-password"
                   size="large"
                   class="password"
                   :placeholder="$t('msg.info.signUp.enterPassword')"

@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import type { LinkToAnotherRecordType, TableType } from 'nocodb-sdk'
+import { type LinkToAnotherRecordType, type TableType, isLinksOrLTAR } from 'nocodb-sdk'
 import { UITypes, isSystemColumn } from 'nocodb-sdk'
 
 const props = defineProps<{
@@ -77,10 +77,10 @@ const onDelete = async () => {
     refreshCommandPalette()
     // Deleted table successfully
     $e('a:table:delete')
-
     if (oldActiveTableId === toBeDeletedTable.id) {
+      const sourceTables = tables.value.filter((t) => t.source_id === toBeDeletedTable.source_id)
       // Navigate to base if no tables left or open first table
-      if (tables.value.length === 0) {
+      if (sourceTables.length === 0) {
         await navigateTo(
           baseUrl({
             id: props.baseId,
@@ -88,7 +88,12 @@ const onDelete = async () => {
           }),
         )
       } else {
-        await openTable(tables.value[0])
+        await openTable(sourceTables[0])
+      }
+    } else {
+      const activeTableMeta = await getMeta(activeTable.value?.id as string, true)
+      if (activeTableMeta.columns?.find((c) => isLinksOrLTAR(c))) {
+        await getMeta(activeTable.value?.id as string, true)
       }
     }
 
@@ -109,7 +114,7 @@ const onDelete = async () => {
 <template>
   <GeneralDeleteModal v-model:visible="visible" :entity-name="$t('objects.table')" :on-delete="onDelete">
     <template #entity-preview>
-      <div v-if="table" class="flex flex-row items-center py-2.25 px-2.5 bg-gray-50 rounded-lg text-gray-700 mb-4">
+      <div v-if="table" class="flex flex-row items-center py-2.25 px-2.5 bg-gray-50 rounded-lg text-gray-700">
         <GeneralTableIcon :meta="table" class="nc-view-icon" />
         <div
           class="capitalize text-ellipsis overflow-hidden select-none w-full pl-1.75"

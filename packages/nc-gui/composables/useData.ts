@@ -1,25 +1,7 @@
 import type { ColumnType, LinkToAnotherRecordType, PaginatedType, RelationTypes, TableType, ViewType } from 'nocodb-sdk'
-import { UITypes, isCreatedOrLastModifiedByCol, isCreatedOrLastModifiedTimeCol } from 'nocodb-sdk'
+import { UITypes, isAIPromptCol, isCreatedOrLastModifiedByCol, isCreatedOrLastModifiedTimeCol } from 'nocodb-sdk'
 import type { ComputedRef, Ref } from 'vue'
-import {
-  NOCO,
-  computed,
-  extractPk,
-  extractPkFromRow,
-  extractSdkResponseErrorMsg,
-  findIndexByPk,
-  message,
-  populateInsertObject,
-  rowDefaultData,
-  rowPkData,
-  storeToRefs,
-  until,
-  useBase,
-  useI18n,
-  useMetas,
-  useNuxtApp,
-} from '#imports'
-import type { CellRange, Row, UndoRedoAction } from '#imports'
+import type { CellRange } from '#imports'
 
 export function useData(args: {
   meta: Ref<TableType | undefined> | ComputedRef<TableType | undefined>
@@ -29,7 +11,7 @@ export function useData(args: {
   callbacks?: {
     changePage?: (page: number) => Promise<void>
     loadData?: () => Promise<void>
-    globalCallback?: (...args: any[]) => void
+    globalCallback?: (...args: any[]) => Promise<void>
     syncCount?: () => Promise<void>
     syncPagination?: () => Promise<void>
   }
@@ -47,6 +29,8 @@ export function useData(args: {
   const { $api } = useNuxtApp()
 
   const { isPaginationLoading } = storeToRefs(useViewsStore())
+
+  const reloadAggregate = inject(ReloadAggregateHookInj)
 
   const selectedAllRecords = computed({
     get() {
@@ -93,6 +77,8 @@ export function useData(args: {
         viewMetaValue?.id as string,
         { ...insertObj, ...(ltarState || {}) },
       )
+
+      await reloadAggregate?.trigger()
 
       if (!undo) {
         Object.assign(currentRow, {
@@ -222,7 +208,7 @@ export function useData(args: {
         base?.value.id as string,
         metaValue?.id as string,
         viewMetaValue?.id as string,
-        id,
+        encodeURIComponent(id),
         {
           // if value is undefined treat it as null
           [property]: toUpdate.row[property] ?? null,
@@ -232,6 +218,7 @@ export function useData(args: {
         //   query: { ignoreWebhook: !saved }
         // }
       )
+      await reloadAggregate?.trigger({ fields: [{ title: property }] })
 
       if (!undo) {
         addUndo({
@@ -281,6 +268,7 @@ export function useData(args: {
 
         /** update row data(to sync formula and other related columns)
          * update only formula, rollup and auto updated datetime columns data to avoid overwriting any changes made by user
+         * update attachment as well since id is required for further operations
          */
         Object.assign(
           toUpdate.row,
@@ -296,8 +284,11 @@ export function useData(args: {
                 col.uidt === UITypes.LastModifiedTime ||
                 col.uidt === UITypes.LastModifiedBy ||
                 col.uidt === UITypes.Lookup ||
+                col.uidt === UITypes.Button ||
+                col.uidt === UITypes.Attachment ||
+                isAIPromptCol(col) ||
                 col.au ||
-                (col.cdf && / on update /i.test(col.cdf)))
+                (isValidValue(col?.cdf) && / on update /i.test(col.cdf)))
             )
               acc[col.title!] = updatedRowData[col.title!]
             return acc
@@ -310,7 +301,8 @@ export function useData(args: {
 
       return updatedRowData
     } catch (e: any) {
-      message.error(`${t('msg.error.rowUpdateFailed')} ${await extractSdkResponseErrorMsg(e)}`)
+      toUpdate.row[property] = toUpdate.oldRow[property]
+      message.error(`${t('msg.error.rowUpdateFailed')}: ${await extractSdkResponseErrorMsg(e)}`)
     } finally {
       if (toUpdate.rowMeta) toUpdate.rowMeta.saving = false
     }
@@ -372,6 +364,7 @@ export function useData(args: {
     }
 
     await $api.dbTableRow.bulkUpdate(NOCO, metaValue?.base_id as string, metaValue?.id as string, updateArray)
+    await reloadAggregate?.trigger({ fields: props.map((p) => ({ title: p })) })
 
     if (!undo) {
       addUndo({
@@ -463,6 +456,8 @@ export function useData(args: {
       viewId: viewMetaValue.id,
     })
 
+    await reloadAggregate?.trigger()
+
     await callbacks?.loadData?.()
     await callbacks?.globalCallback?.()
   }
@@ -539,6 +534,8 @@ export function useData(args: {
       encodeURIComponent(id),
     )
 
+    await reloadAggregate?.trigger()
+
     if (res.message) {
       message.info(
         `Record delete failed: ${`Unable to delete record with ID ${id} because of the following:
@@ -554,10 +551,7 @@ export function useData(args: {
     try {
       const row = formattedData.value[rowIndex]
       if (!row.rowMeta.new) {
-        const id = meta?.value?.columns
-          ?.filter((c) => c.pk)
-          .map((c) => row.row[c.title!])
-          .join('___')
+        const id = extractPkFromRow(row.row, meta?.value?.columns)
 
         const fullRecord = await $api.dbTableRow.read(
           NOCO,
@@ -658,6 +652,8 @@ export function useData(args: {
 
     if (!removedRowsData.length) return
 
+    isPaginationLoading.value = true
+
     const { list } = await $api.dbTableRow.list(NOCO, base?.value.id as string, meta.value?.id as string, {
       pks: removedRowsData.map((row) => row[compositePrimaryKey]).join(','),
     })
@@ -677,11 +673,16 @@ export function useData(args: {
       return message.error(`${t('msg.error.deleteRowFailed')}: ${await extractSdkResponseErrorMsg(e)}`)
     }
 
-    if (!removedRowsData.length) return
+    if (!removedRowsData.length) {
+      isPaginationLoading.value = false
+      return
+    }
 
     addUndo({
       redo: {
         fn: async function redo(this: UndoRedoAction, removedRowsData: Record<string, any>[]) {
+          isPaginationLoading.value = true
+
           const removedRowIds = await bulkDeleteRows(removedRowsData.map((row) => row.pkData))
 
           if (Array.isArray(removedRowIds)) {
@@ -693,7 +694,9 @@ export function useData(args: {
             }
           }
 
+          await callbacks?.syncCount?.()
           await callbacks?.syncPagination?.()
+          await callbacks?.globalCallback?.()
         },
         args: [removedRowsData],
       },
@@ -783,6 +786,8 @@ export function useData(args: {
 
     if (!removedRowsData.length) return
 
+    isPaginationLoading.value = true
+
     const { list } = await $api.dbTableRow.list(NOCO, base?.value.id as string, meta.value?.id as string, {
       pks: removedRowsData.map((row) => row[compositePrimaryKey]).join(','),
     })
@@ -802,11 +807,16 @@ export function useData(args: {
       return message.error(`${t('msg.error.deleteRowFailed')}: ${await extractSdkResponseErrorMsg(e)}`)
     }
 
-    if (!removedRowsData.length) return
+    if (!removedRowsData.length) {
+      isPaginationLoading.value = false
+      return
+    }
 
     addUndo({
       redo: {
         fn: async function redo(this: UndoRedoAction, removedRowsData: Record<string, any>[]) {
+          isPaginationLoading.value = true
+
           const removedRowIds = await bulkDeleteRows(removedRowsData.map((row) => row.pkData))
 
           if (Array.isArray(removedRowIds)) {
@@ -818,7 +828,9 @@ export function useData(args: {
             }
           }
 
+          await callbacks?.syncCount?.()
           await callbacks?.syncPagination?.()
+          await callbacks?.globalCallback?.()
         },
         args: [removedRowsData],
       },
@@ -872,19 +884,15 @@ export function useData(args: {
     rows: Record<string, string>[],
     { metaValue = meta.value, viewMetaValue = viewMeta.value }: { metaValue?: TableType; viewMetaValue?: ViewType } = {},
   ) {
-    isPaginationLoading.value = true
     try {
       const bulkDeletedRowsData = await $api.dbDataTableRow.delete(metaValue?.id as string, rows.length === 1 ? rows[0] : rows, {
         viewId: viewMetaValue?.id as string,
       })
+      await reloadAggregate?.trigger()
 
-      await callbacks?.syncCount?.()
       return rows.length === 1 && bulkDeletedRowsData ? [bulkDeletedRowsData] : bulkDeletedRowsData
     } catch (error: any) {
       message.error(await extractSdkResponseErrorMsg(error))
-    } finally {
-      await callbacks?.globalCallback?.()
-      isPaginationLoading.value = false
     }
   }
 

@@ -1,21 +1,5 @@
 <script lang="ts" setup>
 import { UITypes, isVirtualCol, parseStringDateTime } from 'nocodb-sdk'
-import {
-  type ComputedRef,
-  IsExpandedFormOpenInj,
-  IsFormInj,
-  IsPublicInj,
-  ReadonlyInj,
-  RowHeightInj,
-  computed,
-  inject,
-  isImage,
-  provide,
-  ref,
-  useAttachment,
-  useVModel,
-} from '#imports'
-import MaximizeIcon from '~icons/nc-icons/maximize'
 
 const props = withDefaults(
   defineProps<{
@@ -26,9 +10,11 @@ const props = withDefaults(
     displayValueTypeAndFormatProp: { type: string; format: string }
     isLoading: boolean
     isLinked: boolean
+    isSelected?: boolean
   }>(),
   {
     isLoading: false,
+    isSelected: false,
   },
 )
 
@@ -38,9 +24,13 @@ provide(IsExpandedFormOpenInj, ref(true))
 
 provide(RowHeightInj, ref(1 as const))
 
+provide(IsUnderLookupInj, ref(true))
+
 const isForm = inject(IsFormInj, ref(false))
 
 const row = useVModel(props, 'row')
+
+const { isLinked, isLoading, isSelected } = toRefs(props)
 
 const isPublic = inject(IsPublicInj, ref(false))
 
@@ -53,13 +43,6 @@ interface Attachment {
   title: string
   type: string
   mimetype: string
-}
-
-const isRowEmpty = (row: any, col: any) => {
-  const val = row[col.title]
-  if (!val) return true
-
-  return Array.isArray(val) && val.length === 0
 }
 
 const attachments: ComputedRef<Attachment[]> = computed(() => {
@@ -99,40 +82,22 @@ const displayValue = computed(() => {
       :class="{
         '!bg-white': isLoading,
         '!hover:bg-white': readOnly,
+        'nc-is-selected': isSelected,
       }"
       :body-style="{ padding: '6px 10px !important', borderRadius: 0 }"
       :hoverable="false"
     >
       <div class="flex items-center gap-3">
-        <div v-if="isLoading" class="flex">
-          <MdiLoading class="flex-none w-7 h-7 !text-brand-500 animate-spin" />
-        </div>
-
-        <NcTooltip v-else class="z-10 flex">
-          <template #title> {{ isLinked ? 'Unlink' : 'Link' }}</template>
-
-          <button
-            tabindex="-1"
-            class="nc-list-item-link-unlink-btn p-1.5 flex rounded-lg transition-all"
-            :class="{
-              'bg-red-100 text-red-500 hover:bg-red-200': isLinked,
-              'bg-green-100 text-green-500 hover:bg-green-200': !isLinked,
-            }"
-            @click="$emit('linkOrUnlink')"
-          >
-            <GeneralIcon :icon="isLinked ? 'minus' : 'plus'" class="flex-none w-4 h-4 !font-extrabold" />
-          </button>
-        </NcTooltip>
         <template v-if="attachment">
           <div v-if="attachments && attachments.length">
             <a-carousel autoplay class="!w-11 !h-11 !max-h-11 !max-w-11">
               <template #customPaging> </template>
               <template v-for="(attachmentObj, index) in attachments">
-                <LazyCellAttachmentImage
+                <LazyCellAttachmentPreviewImage
                   v-if="isImage(attachmentObj.title, attachmentObj.mimetype ?? attachmentObj.type)"
                   :key="`carousel-${attachmentObj.title}-${index}`"
                   class="!w-11 !h-11 !max-h-11 !max-w-11object-cover !rounded-l-xl"
-                  :srcs="getPossibleAttachmentSrc(attachmentObj)"
+                  :srcs="getPossibleAttachmentSrc(attachmentObj, 'tiny')"
                 />
               </template>
             </a-carousel>
@@ -157,16 +122,21 @@ const displayValue = computed(() => {
             class="flex ml-[-0.25rem] sm:flex-row xs:(flex-col mt-2) gap-4 min-h-5"
           >
             <div v-for="field in fields" :key="field.id" class="sm:(w-1/3 max-w-1/3 overflow-hidden)">
-              <div v-if="!isRowEmpty(row, field)" class="flex flex-col gap-[-1]">
-                <NcTooltip class="z-10 flex" placement="bottom">
+              <div v-if="!isRowEmpty({ row }, field)" class="flex flex-col gap-[-1]">
+                <NcTooltip class="z-10 flex" placement="bottomLeft" :arrow-point-at-center="false">
                   <template #title>
                     <LazySmartsheetHeaderVirtualCell
                       v-if="isVirtualCol(field)"
-                      class="!scale-60 text-gray-100 !text-sm"
+                      class="text-gray-100 !text-sm nc-link-record-cell-tooltip"
                       :column="field"
                       :hide-menu="true"
                     />
-                    <LazySmartsheetHeaderCell v-else class="!scale-70 text-gray-100 !text-sm" :column="field" :hide-menu="true" />
+                    <LazySmartsheetHeaderCell
+                      v-else
+                      class="text-gray-100 !text-sm nc-link-record-cell-tooltip"
+                      :column="field"
+                      :hide-menu="true"
+                    />
                   </template>
                   <div class="nc-link-record-cell flex w-full max-w-full">
                     <LazySmartsheetVirtualCell v-if="isVirtualCol(field)" v-model="row[field.title]" :row="row" :column="field" />
@@ -185,15 +155,39 @@ const displayValue = computed(() => {
           </div>
         </div>
         <div v-if="!isForm && !isPublic && !readOnly" class="flex-none flex items-center w-7">
-          <button
-            v-e="['c:row-expand:open']"
-            :tabindex="-1"
-            class="z-10 flex items-center justify-center nc-expand-item !group-hover:visible !invisible !h-7 !w-7 transition-all !hover:children:(w-4.5 h-4.5)"
-            @click.stop="$emit('expand', row)"
-          >
-            <MaximizeIcon class="flex-none w-4 h-4 scale-125" />
-          </button>
+          <NcTooltip class="flex">
+            <template #title>{{ $t('title.expand') }}</template>
+
+            <button
+              v-e="['c:row-expand:open']"
+              :tabindex="-1"
+              class="z-10 flex items-center justify-center nc-expand-item !group-hover:visible !invisible !h-7 !w-7 transition-all !hover:children:(w-4.5 h-4.5)"
+              @click.stop="$emit('expand', row)"
+            >
+              <GeneralIcon icon="maximize" class="flex-none w-4 h-4 scale-125" />
+            </button>
+          </NcTooltip>
         </div>
+        <template v-if="(!isPublic && !readOnly) || isForm">
+          <NcTooltip class="z-10 flex">
+            <template #title> {{ isLinked ? 'Unlink' : 'Link' }}</template>
+
+            <button
+              tabindex="-1"
+              class="nc-list-item-link-unlink-btn p-1.5 flex rounded-lg transition-all"
+              :class="{
+                'bg-gray-200 text-gray-800 hover:(bg-red-100 text-red-500)': isLinked,
+                'bg-green-[#D4F7E0] text-[#17803D] hover:bg-green-200': !isLinked,
+              }"
+              @click="$emit('linkOrUnlink')"
+            >
+              <div v-if="isLoading" class="flex">
+                <MdiLoading class="flex-none w-4 h-4 !text-brand-500 animate-spin" />
+              </div>
+              <GeneralIcon v-else :icon="isLinked ? 'minus' : 'plus'" class="flex-none w-4 h-4 !font-extrabold" />
+            </button>
+          </NcTooltip>
+        </template>
       </div>
     </a-card>
   </div>
@@ -268,10 +262,21 @@ const displayValue = computed(() => {
       .ant-select-selector {
         @apply !border-none flex-nowrap pr-4.5;
       }
-      .ant-select-arrow {
+      .ant-select-arrow,
+      .ant-select-clear {
         @apply right-[3px];
       }
     }
+  }
+}
+.nc-link-record-cell-tooltip {
+  @apply !bg-transparent !hover:bg-transparent;
+
+  :deep(.nc-cell-icon) {
+    @apply !ml-0;
+  }
+  :deep(.name) {
+    @apply !text-small;
   }
 }
 </style>
@@ -280,7 +285,8 @@ const displayValue = computed(() => {
 .nc-list-item {
   @apply border-1 border-transparent rounded-md;
 
-  &:focus-visible {
+  &:focus-visible,
+  &.nc-is-selected {
     @apply border-brand-500;
     box-shadow: 0 0 0 1px #3366ff;
   }
